@@ -10,6 +10,7 @@ async fn main() {
     let (ev_tx, mut ev_rx) = tokio::sync::mpsc::unbounded_channel::<NetEvent>();
     let mut backend: Box<dyn Backend + Send> = if test { Box::new(FakeServer::new(ev_tx)) } else { Box::new(real::spawn(ev_tx)) };
     let mut bridge = Bridge::new(test);
+    bridge.hooks = std::env::args().any(|a| a == "--hooks");
     let (in_tx, mut in_rx) = tokio::sync::mpsc::unbounded_channel::<Option<String>>();
     tokio::spawn(async move {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();

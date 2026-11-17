@@ -82,6 +82,8 @@ enum Phase {
 
 pub struct Bridge {
     pub test: bool,
+    /// Debug hooks (x-test-text/-pending/-drop) outside --test, for integration tests.
+    pub hooks: bool,
     pub emacs_out: Vec<Value>,
     pub net_out: Vec<NetCmd>,
     pub exit: Option<i32>,
@@ -159,6 +161,7 @@ impl Bridge {
     pub fn new(test: bool) -> Self {
         Bridge {
             test,
+            hooks: false,
             emacs_out: vec![],
             net_out: vec![],
             exit: None,
@@ -312,7 +315,7 @@ impl Bridge {
     pub fn handle_emacs(&mut self, m: Value) {
         self.now = Instant::now();
         let Some(t) = m.get("t").and_then(|x| x.as_str()) else { return };
-        if t.starts_with("x-test-") && !self.test {
+        if t.starts_with("x-test-") && !self.test && !(self.hooks && matches!(t, "x-test-text" | "x-test-pending" | "x-test-drop")) {
             return;
         }
         if self.root.is_none() && !matches!(t, "hello" | "open" | "close") {
