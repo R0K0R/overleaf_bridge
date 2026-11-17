@@ -230,10 +230,13 @@ impl FakeServer {
             }
         };
         let src = self.current_source();
+        let d_is_history = self.docs[doc_id].kind == DocType::History;
         match self.commit(doc_id, v, cp, &src) {
             Ok(at) => {
                 // other clients would get the op; we get the ack (no op)
-                self.ev(NetEvent::Update { doc_id: doc_id.into(), update: WireUpdate { v: at, op: None, source: Some(src) } });
+                // history-ot: like the real server, report the submitted version
+                let shown = if d_is_history { v } else { at };
+                self.ev(NetEvent::Update { doc_id: doc_id.into(), update: WireUpdate { v: shown, op: None, source: Some(src) } });
             }
             Err(e) => self.ev(NetEvent::UpdateError { doc_id: doc_id.into(), message: e }),
         }

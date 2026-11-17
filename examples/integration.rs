@@ -8,6 +8,7 @@
 use overleaf_bridge::ot::{self, Op};
 use overleaf_bridge::rawclient::{Raw, RawDoc, Sock};
 use rand::{Rng, SeedableRng};
+use reqwest::cookie::CookieStore;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -179,6 +180,13 @@ async fn main() {
     let pname = format!("olb-it-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs());
     let pid = raw.create_project(&pname).await.expect("create project");
     println!("project {pname} ({pid})");
+    let history = std::env::var("OLB_HISTORY").is_ok();
+    if history {
+        // Migrate only this throwaway project to history-ot (nothing has loaded its docs yet).
+        let cmd = format!("docker exec mongo mongosh --quiet sharelatex --eval \"db.projects.updateOne({{_id: ObjectId('{pid}')}}, {{\\$max: {{'overleaf.history.otMigrationStage': 1}}}})\"");
+        let out = std::process::Command::new("ssh").args(["yulee", &format!("bash -c '{}'", cmd.replace('\'', "'\\''"))]).output().expect("ssh");
+        println!("history-ot migration of the test project: {}", String::from_utf8_lossy(&out.stdout).trim().replace('\n', " "));
+    }
     let mut sock = raw.connect(&pid).await.expect("raw socket");
     let root = &sock.project["rootFolder"][0];
     let root_id = root["_id"].as_str().unwrap().to_string();
@@ -186,6 +194,8 @@ async fn main() {
     let (t, v, ty) = sock.join_doc(&main_id, true).await.expect("raw joinDoc");
     println!("main.tex type={ty} version={v} len={}", t.chars().count());
     let mut rawdoc = RawDoc::new(&main_id, &t, v);
+    rawdoc.history = ty == "history-ot";
+    if history { check!(rawdoc.history, "project docs are history-ot"); }
     let mut tree: Vec<(String, Vec<Value>)> = vec![];
     let mut cursors: Vec<Value> = vec![];
 
@@ -363,6 +373,42 @@ async fn main() {
     check!(st3.contains("offline edit from emacs") && st3.contains("browser edit during outage"), "S8 both outage edits survived");
     let dups = st3.matches("offline edit from emacs").count();
     check!(dups == 1, "S8 the queued edit was applied exactly once ({dups})");
+
+    // ---- S8b: drop right after edits, so an op may be inflight ----
+    for i in 0..3 {
+        let len = em.docs["main.tex"].text.len();
+        em.edit("main.tex", ot::from_change(len, len, 0, &format!("\n%%MARK{i}%%")).unwrap()).await;
+        em.send(json!({"t":"x-test-drop"})).await;
+        em.wait("offline", 20, |m| m["t"] == "status" && m["state"] == "offline").await;
+        em.wait("connected again", 60, |m| m["t"] == "status" && m["state"] == "connected").await;
+    }
+    for _ in 0..40 {
+        em.pump(250).await;
+        if em.docs["main.tex"].pending.is_empty() { break; }
+    }
+    em.pump(500).await;
+    let mut s2 = raw.connect(&pid).await.unwrap();
+    let (st4, sv4, _) = s2.join_doc(&main_id, true).await.unwrap();
+    s2.close();
+    check!(em.text("main.tex") == st4, "S8b emacs == server after 3 drops with edits in flight (server v{sv4})");
+    for i in 0..3 {
+        let n = st4.matches(&format!("%%MARK{i}%%")).count();
+        check!(n == 1, "S8b MARK{i} applied exactly once ({n})");
+    }
+    let st3 = st4;
+
+    // ---- cookie login (second bridge) ----
+    {
+        let cookie = raw.jar.cookies(&raw.base).and_then(|h| h.to_str().ok().map(String::from)).unwrap();
+        let mut e2 = Emacs::start(&bin, &["--hooks"]).await;
+        e2.send(json!({"t":"hello","client":"olb-integration","version":0})).await;
+        e2.send(json!({"t":"open","params":{"server":server,"project_id":pid,"mirror_dir":std::env::temp_dir().join(format!("olb-mirror2-{pid}"))},"credentials":{"method":"cookie","cookie":cookie}})).await;
+        let r = e2.wait("ready (cookie)", 60, |m| m["t"] == "ready" || m["t"] == "need_auth" || m["t"] == "error").await;
+        check!(r["t"] == "ready", "cookie login: {}", r["t"]);
+        e2.send(json!({"t":"close"})).await;
+        let _ = tokio::time::timeout(Duration::from_secs(5), e2.child.wait()).await;
+        let _ = std::fs::remove_dir_all(std::env::temp_dir().join(format!("olb-mirror2-{pid}")));
+    }
 
     // ---- teardown ----
     em.send(json!({"t":"detach","path":"main.tex"})).await;

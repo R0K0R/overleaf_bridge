@@ -46,6 +46,8 @@ struct Doc {
     base: Vec<char>,
     version: i64,
     inflight: Option<Op>,
+    /// Version the inflight op was sent at.
+    inflight_v: i64,
     sent_at: Instant,
     buffer: Option<Op>,
     text: Vec<char>,
@@ -581,6 +583,7 @@ impl Bridge {
         match wire_op(&d.kind, &buf, &d.base) {
             Ok(Some(w)) => {
                 d.inflight = Some(buf);
+                d.inflight_v = d.version;
                 d.sent_at = now;
                 let c = NetCmd::Update { doc_id: id.to_string(), v: d.version, op: w, dup_if_source: vec![] };
                 self.cmd(c);
@@ -595,37 +598,66 @@ impl Bridge {
 
     fn apply_update(&mut self, id: &str, u: WireUpdate) {
         let Some(d) = self.docs.get_mut(id) else { return };
-        if u.v < d.version {
-            return; // already applied (duplicate)
-        }
-        if u.v > d.version {
-            d.ooo.insert(u.v, u);
-            d.ooo_since.get_or_insert(self.now);
-            return;
-        }
         let own = u.source.as_ref().map(|s| self.own_ids.contains(s)).unwrap_or(false);
-        if d.inflight.is_some() && (u.op.is_none() || own) {
-            // our inflight op was applied
-            let inf = d.inflight.take().unwrap();
-            match ot::apply(&d.base, &inf) {
-                Ok(b) => d.base = b,
-                Err(e) => {
-                    let p = d.path.clone();
-                    self.error("internal", &format!("ack apply failed: {e}"), Some(&p), false);
+        let history = d.kind == DocType::History;
+        if history {
+            // history-ot updates carry the version they were *submitted* at (not
+            // where they were applied when the server rebased them), so `v` is
+            // useless for ordering; the websocket delivers them in applied order.
+            if u.op.is_none() || own {
+                if d.inflight.is_some() && u.v >= d.inflight_v {
+                    self.ack_inflight(id);
+                    self.flush_doc(id);
                 }
-            }
-            let d = self.docs.get_mut(id).unwrap();
-            d.version += 1;
-        } else if let Some(w) = &u.op {
-            let r = decode_wire(&d.kind, w, &d.base).and_then(|s| self.integrate(id, s));
-            if let Err(e) = r {
-                self.resync_error(id, &e);
                 return;
             }
         } else {
-            return; // stray ack
+            if u.v < d.version {
+                return; // already applied (duplicate)
+            }
+            if u.v > d.version {
+                d.ooo.insert(u.v, u);
+                d.ooo_since.get_or_insert(self.now);
+                return;
+            }
+            if d.inflight.is_some() && (u.op.is_none() || own) {
+                self.ack_inflight(id);
+                self.after_applied(id);
+                return;
+            }
+            if u.op.is_none() {
+                return; // stray ack
+            }
         }
-        // drain out-of-order updates that became contiguous
+        let w = u.op.as_ref().unwrap();
+        let r = decode_wire(&d.kind, w, &d.base).and_then(|s| self.integrate(id, s));
+        if let Err(e) = r {
+            self.resync_error(id, &e);
+            return;
+        }
+        if history {
+            self.flush_doc(id);
+        } else {
+            self.after_applied(id);
+        }
+    }
+
+    fn ack_inflight(&mut self, id: &str) {
+        let d = self.docs.get_mut(id).unwrap();
+        let inf = d.inflight.take().unwrap();
+        match ot::apply(&d.base, &inf) {
+            Ok(b) => d.base = b,
+            Err(e) => {
+                let p = d.path.clone();
+                self.error("internal", &format!("ack apply failed: {e}"), Some(&p), false);
+                return;
+            }
+        }
+        self.docs.get_mut(id).unwrap().version += 1;
+    }
+
+    /// Drain buffered out-of-order updates that became contiguous, then flush.
+    fn after_applied(&mut self, id: &str) {
         let d = self.docs.get_mut(id).unwrap();
         let v = d.version;
         if let Some(n) = d.ooo.remove(&v) {
@@ -635,8 +667,8 @@ impl Bridge {
             self.apply_update(id, n);
             return;
         }
-        if self.docs[id].ooo.is_empty() {
-            self.docs.get_mut(id).unwrap().ooo_since = None;
+        if d.ooo.is_empty() {
+            d.ooo_since = None;
         }
         self.flush_doc(id);
     }
@@ -852,6 +884,7 @@ impl Bridge {
                         base: text.clone(),
                         version: s.version,
                         inflight: None,
+                        inflight_v: 0,
                         sent_at: self.now,
                         buffer: None,
                         text,
@@ -905,8 +938,9 @@ impl Bridge {
             let from = d.version;
             d.joined = true;
             d.rejoining = false;
+            let history = snap.kind == DocType::History;
             for u in snap.updates.iter().cloned() {
-                if u.v >= from {
+                if history || u.v >= from {
                     self.apply_update(id, u);
                 }
             }

@@ -187,18 +187,19 @@ pub struct RawDoc {
     pub text: Vec<char>,
     pub version: i64,
     pub inflight: Option<Op>,
+    pub history: bool,
 }
 impl RawDoc {
     pub fn new(id: &str, text: &str, version: i64) -> Self {
         let t: Vec<char> = text.chars().collect();
-        RawDoc { id: id.into(), base: t.clone(), text: t, version, inflight: None }
+        RawDoc { id: id.into(), base: t.clone(), text: t, version, inflight: None, history: false }
     }
     /// Start an edit (needs no op in flight); returns the `applyOtUpdate` payload.
     pub fn submit(&mut self, op: Op) -> Result<Value, String> {
         if self.inflight.is_some() {
             return Err("op already in flight".into());
         }
-        let comps = ot::to_sharejs(&op, &self.base)?;
+        let comps = if self.history { ot::to_history(&op, &self.base)? } else { Value::Array(ot::to_sharejs(&op, &self.base)?) };
         self.text = ot::apply(&self.text, &op)?;
         self.inflight = Some(op);
         Ok(json!({"doc": self.id, "op": comps, "v": self.version}))
@@ -206,11 +207,14 @@ impl RawDoc {
     /// Feed an `otUpdateApplied` event for this doc; `public_id` is ours.
     pub fn on_update(&mut self, u: &Value, public_id: &str) -> Result<(), String> {
         let v = u["v"].as_i64().unwrap_or(-1);
-        if v < self.version {
-            return Ok(());
-        }
-        if v > self.version {
-            return Err(format!("gap: have {} got {v}", self.version));
+        // history-ot reports the submitted version, not the applied one: no checks
+        if !self.history {
+            if v < self.version {
+                return Ok(());
+            }
+            if v > self.version {
+                return Err(format!("gap: have {} got {v}", self.version));
+            }
         }
         let own = u["meta"]["source"].as_str() == Some(public_id);
         let no_op = u.get("op").map(|o| o.is_null()).unwrap_or(true);
@@ -221,7 +225,7 @@ impl RawDoc {
             }
             return Ok(());
         }
-        let s = ot::from_sharejs(u["op"].as_array().ok_or("op")?, &self.base)?;
+        let s = if self.history { ot::from_history(&u["op"], &self.base)? } else { ot::from_sharejs(u["op"].as_array().ok_or("op")?, &self.base)? };
         let mut s1 = s.clone();
         if let Some(inf) = self.inflight.take() {
             let (i2, s2) = ot::transform(&inf, &s1)?;
