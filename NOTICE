@@ -1,0 +1,7 @@
+overleaf_bridge is licensed GPL-3.0-or-later (see LICENSE).
+
+The socket.io 0.9 client structure and the cookie/CSRF flow follow ideas from
+nvim-overleaf (https://github.com/mei28/nvim-overleaf), MIT License,
+Copyright (c) mei28. The text-operation algorithms follow ot.js
+(Operational-Transformation/ot.js), MIT License. No code from Overleaf
+Workshop (AGPL) was used.
