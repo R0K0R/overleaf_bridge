@@ -129,6 +129,8 @@ pub struct Bridge {
     pending_texts: HashMap<String, String>,
     binary_fail: Vec<String>,
     sanitize_astral: bool,
+    /// The open credentials are a session cookie: need_auth asks for one.
+    cookie_auth: bool,
 }
 
 fn log(m: &str) {
@@ -207,6 +209,7 @@ impl Bridge {
             pending_texts: HashMap::new(),
             binary_fail: vec![],
             sanitize_astral: !test,
+            cookie_auth: false,
         }
     }
 
@@ -460,6 +463,7 @@ impl Bridge {
                 cookie: g("cookie"),
             }
         });
+        self.cookie_auth = creds.as_ref().is_some_and(|c| c.method == "cookie");
         if !self.test {
             let ok = match &creds {
                 Some(c) if c.method == "cookie" => c.cookie.is_some(),
@@ -467,7 +471,7 @@ impl Bridge {
                 None => false,
             };
             if !ok {
-                self.emit(json!({"t":"need_auth","fields":["email","password"],"reason":"credentials required (password, or a session cookie)"}));
+                self.emit(json!({"t":"need_auth","fields":self.auth_fields(),"reason":"credentials required (password, or a session cookie)"}));
                 return;
             }
         }
@@ -843,6 +847,10 @@ impl Bridge {
         });
     }
 
+    fn auth_fields(&self) -> Value {
+        if self.cookie_auth { json!(["cookie"]) } else { json!(["email", "password"]) }
+    }
+
     // ---- network events ---------------------------------------------------
     pub fn handle_net(&mut self, ev: NetEvent) {
         self.now = Instant::now();
@@ -850,7 +858,7 @@ impl Bridge {
             NetEvent::Log(s) => log(&s),
             NetEvent::NeedAuth { reason } => {
                 self.phase = Phase::Idle;
-                self.emit(json!({"t":"need_auth","fields":["email","password"],"reason":reason}));
+                self.emit(json!({"t":"need_auth","fields":self.auth_fields(),"reason":reason}));
             }
             NetEvent::Fatal { message } => self.error("open_failed", &message, None, true),
             NetEvent::Connected {
@@ -1034,7 +1042,7 @@ impl Bridge {
         }
         if !retry {
             self.phase = Phase::Idle;
-            self.emit(json!({"t":"need_auth","fields":["email","password"],"reason":reason}));
+            self.emit(json!({"t":"need_auth","fields":self.auth_fields(),"reason":reason}));
             return;
         }
         self.offline = true;
