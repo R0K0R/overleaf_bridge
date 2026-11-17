@@ -64,7 +64,14 @@ impl FakeServer {
             held: vec![],
             connections: 0,
         };
-        s.ents.insert("root".into(), FEnt { kind: 2, name: String::new(), parent: None });
+        s.ents.insert(
+            "root".into(),
+            FEnt {
+                kind: 2,
+                name: String::new(),
+                parent: None,
+            },
+        );
         s
     }
     fn id(&mut self) -> String {
@@ -79,20 +86,48 @@ impl FakeServer {
     }
     pub fn add_doc(&mut self, parent: &str, name: &str, text: &str) -> String {
         let id = self.id();
-        self.ents.insert(id.clone(), FEnt { kind: 0, name: name.into(), parent: Some(parent.into()) });
+        self.ents.insert(
+            id.clone(),
+            FEnt {
+                kind: 0,
+                name: name.into(),
+                parent: Some(parent.into()),
+            },
+        );
         let t: Vec<char> = text.chars().collect();
-        self.docs.insert(id.clone(), FDoc { kind: if self.history { DocType::History } else { DocType::Share }, texts: vec![t], ops: vec![], sources: vec![] });
+        self.docs.insert(
+            id.clone(),
+            FDoc {
+                kind: if self.history {
+                    DocType::History
+                } else {
+                    DocType::Share
+                },
+                texts: vec![t],
+                ops: vec![],
+                sources: vec![],
+            },
+        );
         id
     }
     pub fn add_folder(&mut self, parent: &str, name: &str) -> String {
         let id = self.id();
-        self.ents.insert(id.clone(), FEnt { kind: 2, name: name.into(), parent: Some(parent.into()) });
+        self.ents.insert(
+            id.clone(),
+            FEnt {
+                kind: 2,
+                name: name.into(),
+                parent: Some(parent.into()),
+            },
+        );
         id
     }
     /// Seed from a directory.
     pub fn seed_dir(&mut self, dir: &std::path::Path) {
         fn walk(s: &mut FakeServer, dir: &std::path::Path, parent: &str) {
-            let mut es: Vec<_> = std::fs::read_dir(dir).map(|r| r.flatten().collect()).unwrap_or_default();
+            let mut es: Vec<_> = std::fs::read_dir(dir)
+                .map(|r| r.flatten().collect())
+                .unwrap_or_default();
             es.sort_by_key(|e| e.file_name());
             for e in es {
                 let name = e.file_name().to_string_lossy().to_string();
@@ -110,7 +145,14 @@ impl FakeServer {
                         }
                         _ => {
                             let id = s.id();
-                            s.ents.insert(id.clone(), FEnt { kind: 1, name, parent: Some(parent.into()) });
+                            s.ents.insert(
+                                id.clone(),
+                                FEnt {
+                                    kind: 1,
+                                    name,
+                                    parent: Some(parent.into()),
+                                },
+                            );
                             s.files.insert(id, b);
                         }
                     }
@@ -127,13 +169,24 @@ impl FakeServer {
         self.docs[id].version()
     }
     pub fn doc_id_by_name(&self, name: &str) -> Option<String> {
-        self.ents.iter().find(|(_, e)| e.kind == 0 && e.name == name).map(|(i, _)| i.clone())
+        self.ents
+            .iter()
+            .find(|(_, e)| e.kind == 0 && e.name == name)
+            .map(|(i, _)| i.clone())
     }
 
     fn folder(&self, id: &str) -> Folder {
         let e = &self.ents[id];
-        let mut f = Folder { id: id.into(), name: e.name.clone(), ..Default::default() };
-        let mut kids: Vec<_> = self.ents.iter().filter(|(_, k)| k.parent.as_deref() == Some(id)).collect();
+        let mut f = Folder {
+            id: id.into(),
+            name: e.name.clone(),
+            ..Default::default()
+        };
+        let mut kids: Vec<_> = self
+            .ents
+            .iter()
+            .filter(|(_, k)| k.parent.as_deref() == Some(id))
+            .collect();
         kids.sort_by_key(|(i, _)| i.to_string());
         for (i, k) in kids {
             match k.kind {
@@ -147,13 +200,24 @@ impl FakeServer {
 
     fn connected(&mut self) {
         self.connections += 1;
-        let project = ProjectInfo { id: "fakeproject".into(), name: self.project_name.clone(), root: self.folder(&self.root.clone()) };
-        self.ev(NetEvent::Connected { public_id: format!("{SELF_ID}-{}", self.connections), project, user_name: "Fake Self".into(), user_id: "fakeuser".into() });
+        let project = ProjectInfo {
+            id: "fakeproject".into(),
+            name: self.project_name.clone(),
+            root: self.folder(&self.root.clone()),
+        };
+        self.ev(NetEvent::Connected {
+            public_id: format!("{SELF_ID}-{}", self.connections),
+            project,
+            user_name: "Fake Self".into(),
+            user_id: "fakeuser".into(),
+        });
     }
 
     fn wire(&self, id: &str, op: &Op, v: i64) -> Value {
         let d = &self.docs[id];
-        wire_op(&d.kind, op, &d.texts[v as usize]).unwrap().unwrap_or(json!([]))
+        wire_op(&d.kind, op, &d.texts[v as usize])
+            .unwrap()
+            .unwrap_or(json!([]))
     }
 
     /// Apply `op` (cp, based on version `v`) as a new version from `source`.
@@ -176,9 +240,20 @@ impl FakeServer {
 
     fn broadcast(&self, id: &str, at: i64, source: &str, skip_op: bool) {
         let d = &self.docs[id];
-        let op = if skip_op { None } else { Some(self.wire(id, &d.ops[at as usize], at)) };
+        let op = if skip_op {
+            None
+        } else {
+            Some(self.wire(id, &d.ops[at as usize], at))
+        };
         // the wire op is relative to texts[at] only for the committed (transformed) op
-        self.ev(NetEvent::Update { doc_id: id.into(), update: WireUpdate { v: at, op, source: Some(source.into()) } });
+        self.ev(NetEvent::Update {
+            doc_id: id.into(),
+            update: WireUpdate {
+                v: at,
+                op,
+                source: Some(source.into()),
+            },
+        });
     }
 
     /// Another client edits `id` (op over the current text).
@@ -207,9 +282,14 @@ impl FakeServer {
     }
 
     fn update(&mut self, doc_id: &str, v: i64, op: Value, dup: Vec<String>) {
-        let Some(d) = self.docs.get(doc_id) else { return };
+        let Some(d) = self.docs.get(doc_id) else {
+            return;
+        };
         if v < 0 || v > d.version() {
-            self.ev(NetEvent::UpdateError { doc_id: doc_id.into(), message: "Invalid version".into() });
+            self.ev(NetEvent::UpdateError {
+                doc_id: doc_id.into(),
+                message: "Invalid version".into(),
+            });
             return;
         }
         // duplicate detection
@@ -217,7 +297,14 @@ impl FakeServer {
             if let Some(s) = &d.sources[i] {
                 if dup.contains(s) {
                     // already applied: acknowledge at that version
-                    self.ev(NetEvent::Update { doc_id: doc_id.into(), update: WireUpdate { v: i as i64, op: None, source: Some(s.clone()) } });
+                    self.ev(NetEvent::Update {
+                        doc_id: doc_id.into(),
+                        update: WireUpdate {
+                            v: i as i64,
+                            op: None,
+                            source: Some(s.clone()),
+                        },
+                    });
                     return;
                 }
             }
@@ -225,7 +312,10 @@ impl FakeServer {
         let cp = match decode_wire(&d.kind, &op, &d.texts[v as usize]) {
             Ok(o) => o,
             Err(e) => {
-                self.ev(NetEvent::UpdateError { doc_id: doc_id.into(), message: e });
+                self.ev(NetEvent::UpdateError {
+                    doc_id: doc_id.into(),
+                    message: e,
+                });
                 return;
             }
         };
@@ -236,9 +326,19 @@ impl FakeServer {
                 // other clients would get the op; we get the ack (no op)
                 // history-ot: like the real server, report the submitted version
                 let shown = if d_is_history { v } else { at };
-                self.ev(NetEvent::Update { doc_id: doc_id.into(), update: WireUpdate { v: shown, op: None, source: Some(src) } });
+                self.ev(NetEvent::Update {
+                    doc_id: doc_id.into(),
+                    update: WireUpdate {
+                        v: shown,
+                        op: None,
+                        source: Some(src),
+                    },
+                });
             }
-            Err(e) => self.ev(NetEvent::UpdateError { doc_id: doc_id.into(), message: e }),
+            Err(e) => self.ev(NetEvent::UpdateError {
+                doc_id: doc_id.into(),
+                message: e,
+            }),
         }
     }
 }
@@ -247,10 +347,18 @@ impl Backend for FakeServer {
     fn send(&mut self, cmd: NetCmd) {
         match cmd {
             NetCmd::Open { params, .. } => {
-                if let Some(d) = params.get("mirror_dir").or_else(|| params.get("dir")).and_then(|x| x.as_str()) {
+                if let Some(d) = params
+                    .get("mirror_dir")
+                    .or_else(|| params.get("dir"))
+                    .and_then(|x| x.as_str())
+                {
                     self.seed_dir(std::path::Path::new(d));
                 }
-                if params.get("fake_history").and_then(|x| x.as_bool()).unwrap_or(false) {
+                if params
+                    .get("fake_history")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(false)
+                {
                     self.history = true;
                     for d in self.docs.values_mut() {
                         d.kind = DocType::History;
@@ -259,23 +367,51 @@ impl Backend for FakeServer {
                 self.connected();
             }
             NetCmd::Reconnect => self.connected(),
-            NetCmd::DropConnection => self.ev(NetEvent::Disconnected { reason: "test drop".into(), retry: true }),
-            NetCmd::JoinDoc { doc_id, from_version } => {
+            NetCmd::DropConnection => self.ev(NetEvent::Disconnected {
+                reason: "test drop".into(),
+                retry: true,
+            }),
+            NetCmd::JoinDoc {
+                doc_id,
+                from_version,
+            } => {
                 let Some(d) = self.docs.get(&doc_id) else {
-                    self.ev(NetEvent::DocJoined { doc_id, result: Err("no such doc".into()) });
+                    self.ev(NetEvent::DocJoined {
+                        doc_id,
+                        result: Err("no such doc".into()),
+                    });
                     return;
                 };
                 let mut updates = vec![];
                 if let Some(f) = from_version {
                     for i in (f.max(0) as usize)..d.ops.len() {
-                        let w = wire_op(&d.kind, &d.ops[i], &d.texts[i]).unwrap().unwrap_or(json!([]));
-                        updates.push(WireUpdate { v: i as i64, op: Some(w), source: d.sources[i].clone() });
+                        let w = wire_op(&d.kind, &d.ops[i], &d.texts[i])
+                            .unwrap()
+                            .unwrap_or(json!([]));
+                        updates.push(WireUpdate {
+                            v: i as i64,
+                            op: Some(w),
+                            source: d.sources[i].clone(),
+                        });
                     }
                 }
-                let snap = DocSnapshot { text: d.text().iter().collect(), version: d.version(), kind: d.kind.clone(), updates };
-                self.ev(NetEvent::DocJoined { doc_id, result: Ok(snap) });
+                let snap = DocSnapshot {
+                    text: d.text().iter().collect(),
+                    version: d.version(),
+                    kind: d.kind.clone(),
+                    updates,
+                };
+                self.ev(NetEvent::DocJoined {
+                    doc_id,
+                    result: Ok(snap),
+                });
             }
-            NetCmd::Update { doc_id, v, op, dup_if_source } => {
+            NetCmd::Update {
+                doc_id,
+                v,
+                op,
+                dup_if_source,
+            } => {
                 if self.hold_acks {
                     self.held.push((doc_id, v, op, dup_if_source));
                 } else {
@@ -289,7 +425,11 @@ impl Backend for FakeServer {
             }
             NetCmd::Cursor { .. } | NetCmd::Close => {}
             NetCmd::FetchFile { file_id } => {
-                let r = self.files.get(&file_id).cloned().ok_or_else(|| "no such file".to_string());
+                let r = self
+                    .files
+                    .get(&file_id)
+                    .cloned()
+                    .ok_or_else(|| "no such file".to_string());
                 self.ev(NetEvent::FileData { file_id, result: r });
             }
             NetCmd::Rest { tag, req } => {
@@ -302,14 +442,22 @@ impl Backend for FakeServer {
 
 impl FakeServer {
     fn rest(&mut self, req: RestReq) -> Result<Value, String> {
-        let dup = |s: &FakeServer, parent: &str, name: &str| s.ents.values().any(|e| e.parent.as_deref() == Some(parent) && e.name == name);
+        let dup = |s: &FakeServer, parent: &str, name: &str| {
+            s.ents
+                .values()
+                .any(|e| e.parent.as_deref() == Some(parent) && e.name == name)
+        };
         match req {
             RestReq::CreateDoc { parent, name } => {
                 if dup(self, &parent, &name) {
                     return Err("file already exists".into());
                 }
                 let id = self.add_doc(&parent, &name, "");
-                self.ev(NetEvent::Tree(TreeEvent::NewDoc { parent, id: id.clone(), name: name.clone() }));
+                self.ev(NetEvent::Tree(TreeEvent::NewDoc {
+                    parent,
+                    id: id.clone(),
+                    name: name.clone(),
+                }));
                 Ok(json!({"_id":id,"name":name}))
             }
             RestReq::CreateFolder { parent, name } => {
@@ -317,7 +465,11 @@ impl FakeServer {
                     return Err("folder already exists".into());
                 }
                 let id = self.add_folder(&parent, &name);
-                self.ev(NetEvent::Tree(TreeEvent::NewFolder { parent, id: id.clone(), name: name.clone() }));
+                self.ev(NetEvent::Tree(TreeEvent::NewFolder {
+                    parent,
+                    id: id.clone(),
+                    name: name.clone(),
+                }));
                 Ok(json!({"_id":id,"name":name}))
             }
             RestReq::Rename { id, name, .. } => {
@@ -335,7 +487,12 @@ impl FakeServer {
             RestReq::Delete { id, .. } => {
                 let mut stack = vec![id.clone()];
                 while let Some(i) = stack.pop() {
-                    stack.extend(self.ents.iter().filter(|(_, e)| e.parent.as_deref() == Some(&i)).map(|(k, _)| k.clone()));
+                    stack.extend(
+                        self.ents
+                            .iter()
+                            .filter(|(_, e)| e.parent.as_deref() == Some(&i))
+                            .map(|(k, _)| k.clone()),
+                    );
                     self.ents.remove(&i);
                     self.docs.remove(&i);
                     self.files.remove(&i);

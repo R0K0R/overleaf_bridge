@@ -282,7 +282,11 @@ pub fn to_units(op: &Op, text: &[char]) -> R<Op> {
                 }
                 let u: usize = text[i..i + n].iter().map(|c| u16len(*c)).sum();
                 i += n;
-                out.push(if matches!(c, C::R(_)) { C::R(u) } else { C::D(u) });
+                out.push(if matches!(c, C::R(_)) {
+                    C::R(u)
+                } else {
+                    C::D(u)
+                });
             }
         }
     }
@@ -307,7 +311,11 @@ pub fn from_units(op: &Op, text: &[char]) -> R<Op> {
                     return Err("op splits a surrogate pair".into());
                 }
                 i += k;
-                out.push(if matches!(c, C::R(_)) { C::R(k) } else { C::D(k) });
+                out.push(if matches!(c, C::R(_)) {
+                    C::R(k)
+                } else {
+                    C::D(k)
+                });
             }
         }
     }
@@ -352,7 +360,10 @@ pub fn from_sharejs(comps: &[Value], text: &[char]) -> R<Op> {
     let mut cur: Vec<char> = text.to_vec();
     let mut acc = identity(text.len());
     for c in comps {
-        let p = c.get("p").and_then(|x| x.as_u64()).ok_or("component without p")? as usize;
+        let p = c
+            .get("p")
+            .and_then(|x| x.as_u64())
+            .ok_or("component without p")? as usize;
         // unit offset -> char index
         let (mut u, mut k) = (0usize, 0usize);
         while u < p {
@@ -406,7 +417,11 @@ pub fn from_history(ops: &Value, text: &[char]) -> R<Op> {
             if let Some(s) = c.as_str() {
                 op.push(C::I(s.to_string()));
             } else if let Some(n) = c.as_i64() {
-                op.push(if n >= 0 { C::R(n as usize) } else { C::D((-n) as usize) });
+                op.push(if n >= 0 {
+                    C::R(n as usize)
+                } else {
+                    C::D((-n) as usize)
+                });
             } else if let Some(n) = c.get("r").and_then(|x| x.as_u64()) {
                 op.push(C::R(n as usize));
             } else if let Some(s) = c.get("i").and_then(|x| x.as_str()) {
@@ -468,7 +483,10 @@ mod tests {
         let a = from_change(2, 1, 0, "A").unwrap();
         let b = from_change(2, 1, 0, "B").unwrap();
         let (_, b2) = transform(&a, &b).unwrap();
-        assert_eq!(apply(&apply(&cs("xy"), &a).unwrap(), &b2).unwrap(), cs("xABy"));
+        assert_eq!(
+            apply(&apply(&cs("xy"), &a).unwrap(), &b2).unwrap(),
+            cs("xABy")
+        );
     }
     #[test]
     fn units_roundtrip() {
@@ -489,9 +507,9 @@ mod tests {
     #[test]
     fn history_roundtrip() {
         let t = cs("a😀bc");
-        let op = vec![C::R(1), C::D(1), C::I("QQ".into()), C::R(2)];
+        let op = vec![C::R(1), C::I("QQ".into()), C::D(1), C::R(2)];
         let h = to_history(&op, &t).unwrap();
-        assert_eq!(h, json!([{"textOperation":[1,-2,"QQ",2]}]));
+        assert_eq!(h, json!([{"textOperation":[1,"QQ",-2,2]}]));
         assert_eq!(from_history(&h, &t).unwrap(), op);
     }
 }

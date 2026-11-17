@@ -8,7 +8,11 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 async fn main() {
     let test = std::env::args().any(|a| a == "--test");
     let (ev_tx, mut ev_rx) = tokio::sync::mpsc::unbounded_channel::<NetEvent>();
-    let mut backend: Box<dyn Backend + Send> = if test { Box::new(FakeServer::new(ev_tx)) } else { Box::new(real::spawn(ev_tx)) };
+    let mut backend: Box<dyn Backend + Send> = if test {
+        Box::new(FakeServer::new(ev_tx))
+    } else {
+        Box::new(real::spawn(ev_tx))
+    };
     let mut bridge = Bridge::new(test);
     bridge.hooks = std::env::args().any(|a| a == "--hooks");
     let (in_tx, mut in_rx) = tokio::sync::mpsc::unbounded_channel::<Option<String>>();
@@ -49,16 +53,28 @@ async fn main() {
         }
         // settle: drain commands and their synchronous replies
         loop {
-            for c in std::mem::take(&mut bridge.net_out) { backend.send(c); }
+            for c in std::mem::take(&mut bridge.net_out) {
+                backend.send(c);
+            }
             let mut any = false;
-            while let Ok(ev) = ev_rx.try_recv() { bridge.handle_net(ev); any = true; }
-            if !any && bridge.net_out.is_empty() { break; }
+            while let Ok(ev) = ev_rx.try_recv() {
+                bridge.handle_net(ev);
+                any = true;
+            }
+            if !any && bridge.net_out.is_empty() {
+                break;
+            }
         }
         let out = std::mem::take(&mut bridge.emacs_out);
         if !out.is_empty() {
             let mut buf = String::new();
-            for m in out { buf.push_str(&m.to_string()); buf.push('\n'); }
-            if stdout.write_all(buf.as_bytes()).await.is_err() || stdout.flush().await.is_err() { break; }
+            for m in out {
+                buf.push_str(&m.to_string());
+                buf.push('\n');
+            }
+            if stdout.write_all(buf.as_bytes()).await.is_err() || stdout.flush().await.is_err() {
+                break;
+            }
         }
         if let Some(code) = bridge.exit {
             tokio::time::sleep(Duration::from_millis(50)).await;

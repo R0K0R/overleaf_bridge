@@ -68,10 +68,28 @@ struct Doc {
 }
 
 enum Job {
-    CreateDoc { path: String, text: Option<String> },
-    Mkdir { rest: Vec<String>, parent: String, path_so_far: String, then: Box<Job> },
-    Rename { id: String, kind: Kind, from: String, to: String, step: u8 },
-    Delete { id: String, kind: Kind, path: String },
+    CreateDoc {
+        path: String,
+        text: Option<String>,
+    },
+    Mkdir {
+        rest: Vec<String>,
+        parent: String,
+        path_so_far: String,
+        then: Box<Job>,
+    },
+    Rename {
+        id: String,
+        kind: Kind,
+        from: String,
+        to: String,
+        step: u8,
+    },
+    Delete {
+        id: String,
+        kind: Kind,
+        path: String,
+    },
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -247,7 +265,10 @@ impl Bridge {
             .cloned()
     }
     fn doc_by_path(&self, path: &str) -> Option<String> {
-        self.docs.values().find(|d| d.path == path).map(|d| d.id.clone())
+        self.docs
+            .values()
+            .find(|d| d.path == path)
+            .map(|d| d.id.clone())
     }
     fn full(&self, path: &str) -> Option<PathBuf> {
         let r = self.root.as_ref()?;
@@ -269,13 +290,35 @@ impl Bridge {
     fn add_tree(&mut self, f: &Folder, parent: Option<&str>, is_root: bool) {
         self.ents.insert(
             f.id.clone(),
-            Ent { kind: Kind::Folder, name: if is_root { String::new() } else { f.name.clone() }, parent: parent.map(String::from) },
+            Ent {
+                kind: Kind::Folder,
+                name: if is_root {
+                    String::new()
+                } else {
+                    f.name.clone()
+                },
+                parent: parent.map(String::from),
+            },
         );
         for (id, name) in &f.docs {
-            self.ents.insert(id.clone(), Ent { kind: Kind::Doc, name: name.clone(), parent: Some(f.id.clone()) });
+            self.ents.insert(
+                id.clone(),
+                Ent {
+                    kind: Kind::Doc,
+                    name: name.clone(),
+                    parent: Some(f.id.clone()),
+                },
+            );
         }
         for (id, name) in &f.files {
-            self.ents.insert(id.clone(), Ent { kind: Kind::File, name: name.clone(), parent: Some(f.id.clone()) });
+            self.ents.insert(
+                id.clone(),
+                Ent {
+                    kind: Kind::File,
+                    name: name.clone(),
+                    parent: Some(f.id.clone()),
+                },
+            );
         }
         for sub in &f.folders {
             self.add_tree(sub, Some(&f.id), false);
@@ -294,7 +337,9 @@ impl Bridge {
 
     // ---- mirror -----------------------------------------------------------
     fn write_mirror_doc(&mut self, id: &str) {
-        let Some(d) = self.docs.get_mut(id) else { return };
+        let Some(d) = self.docs.get_mut(id) else {
+            return;
+        };
         d.dirty = false;
         let (path, text) = (d.path.clone(), c2s(&d.text));
         if let Some(full) = self.full(&path) {
@@ -304,7 +349,12 @@ impl Bridge {
         }
     }
     fn flush_dirty(&mut self) {
-        let ids: Vec<String> = self.docs.values().filter(|d| d.dirty && !d.attached).map(|d| d.id.clone()).collect();
+        let ids: Vec<String> = self
+            .docs
+            .values()
+            .filter(|d| d.dirty && !d.attached)
+            .map(|d| d.id.clone())
+            .collect();
         for id in ids {
             self.write_mirror_doc(&id);
             if let Some(p) = self.docs.get(&id).map(|d| d.path.clone()) {
@@ -316,8 +366,13 @@ impl Bridge {
     // ---- Emacs messages ---------------------------------------------------
     pub fn handle_emacs(&mut self, m: Value) {
         self.now = Instant::now();
-        let Some(t) = m.get("t").and_then(|x| x.as_str()) else { return };
-        if t.starts_with("x-test-") && !self.test && !(self.hooks && matches!(t, "x-test-text" | "x-test-pending" | "x-test-drop")) {
+        let Some(t) = m.get("t").and_then(|x| x.as_str()) else {
+            return;
+        };
+        if t.starts_with("x-test-")
+            && !self.test
+            && !(self.hooks && matches!(t, "x-test-text" | "x-test-pending" | "x-test-drop"))
+        {
             return;
         }
         if self.root.is_none() && !matches!(t, "hello" | "open" | "close") {
@@ -325,7 +380,9 @@ impl Bridge {
             return;
         }
         match t {
-            "hello" => self.emit(json!({"t":"hello","bridge":"overleaf_bridge","version":0,"capabilities":CAPS})),
+            "hello" => self.emit(
+                json!({"t":"hello","bridge":"overleaf_bridge","version":0,"capabilities":CAPS}),
+            ),
             "open" => self.on_open(&m),
             "attach" => self.on_attach(&m),
             "detach" => self.on_detach(&m),
@@ -339,7 +396,11 @@ impl Bridge {
             }
             "x-test-remote" => self.on_x_test_remote(&m),
             "x-test-text" => {
-                let path = m.get("path").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                let path = m
+                    .get("path")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 match self.doc_by_path(&path).and_then(|id| self.docs.get(&id)) {
                     Some(d) => {
                         let text = c2s(&d.text);
@@ -349,8 +410,16 @@ impl Bridge {
                 }
             }
             "x-test-pending" => {
-                let path = m.get("path").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                let count = self.doc_by_path(&path).and_then(|id| self.docs.get(&id)).map(|d| d.pending.len()).unwrap_or(0);
+                let path = m
+                    .get("path")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let count = self
+                    .doc_by_path(&path)
+                    .and_then(|id| self.docs.get(&id))
+                    .map(|d| d.pending.len())
+                    .unwrap_or(0);
                 self.emit(json!({"t":"x-test-pending","path":path,"count":count}));
             }
             "x-test-peer" => {
@@ -418,13 +487,22 @@ impl Bridge {
     }
 
     fn on_attach(&mut self, m: &Value) {
-        let path = m.get("path").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let path = m
+            .get("path")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
         if !self.require_ready() {
             self.error("not_open", "project not ready", Some(&path), false);
             return;
         }
         let Some(id) = self.doc_by_path(&path) else {
-            self.error("attach_failed", "not a text document of this project", Some(&path), false);
+            self.error(
+                "attach_failed",
+                "not a text document of this project",
+                Some(&path),
+                false,
+            );
             return;
         };
         let d = self.docs.get_mut(&id).unwrap();
@@ -440,7 +518,9 @@ impl Bridge {
 
     fn on_detach(&mut self, m: &Value) {
         let path = m.get("path").and_then(|x| x.as_str()).unwrap_or("");
-        let Some(id) = self.doc_by_path(path) else { return };
+        let Some(id) = self.doc_by_path(path) else {
+            return;
+        };
         let d = self.docs.get_mut(&id).unwrap();
         d.attached = false;
         d.broken = false;
@@ -460,8 +540,14 @@ impl Bridge {
     }
 
     fn on_ack(&mut self, m: &Value) {
-        let path = m.get("path").and_then(|x| x.as_str()).unwrap_or("").to_string();
-        let Some(id) = self.doc_by_path(&path) else { return };
+        let path = m
+            .get("path")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        let Some(id) = self.doc_by_path(&path) else {
+            return;
+        };
         let seen = m.get("seen").and_then(|x| x.as_u64());
         let d = self.docs.get_mut(&id).unwrap();
         if !d.attached || d.broken {
@@ -474,7 +560,11 @@ impl Bridge {
     }
 
     fn on_edit(&mut self, m: &Value) {
-        let path = m.get("path").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let path = m
+            .get("path")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
         let Some(id) = self.doc_by_path(&path) else {
             self.desync(&path, None, "edit for an unknown document");
             return;
@@ -496,19 +586,30 @@ impl Bridge {
     }
 
     fn edit_inner(&mut self, id: &str, m: &Value) -> Result<(), String> {
-        let seq = m.get("seq").and_then(|x| x.as_u64()).ok_or("seq must be an integer")?;
-        let s = m.get("seen").and_then(|x| x.as_u64()).ok_or("seen must be an integer")?;
+        let seq = m
+            .get("seq")
+            .and_then(|x| x.as_u64())
+            .ok_or("seq must be an integer")?;
+        let s = m
+            .get("seen")
+            .and_then(|x| x.as_u64())
+            .ok_or("seen must be an integer")?;
         let mut op = ot::op_from_json(m.get("op").ok_or("missing op")?)?;
         let now = self.now;
         let sanitize = self.sanitize_astral;
         let d = self.docs.get_mut(id).unwrap();
         if seq != d.seen + 1 {
-            return Err(format!("sequence gap: expected {}, got {}", d.seen + 1, seq));
+            return Err(format!(
+                "sequence gap: expected {}, got {}",
+                d.seen + 1,
+                seq
+            ));
         }
         if s > d.sent {
             return Err(format!("seen {s} out of range (sent {})", d.sent));
         }
-        let mut pending: Vec<(u64, Op)> = d.pending.iter().filter(|(q, _)| *q > s).cloned().collect();
+        let mut pending: Vec<(u64, Op)> =
+            d.pending.iter().filter(|(q, _)| *q > s).cloned().collect();
         for p in pending.iter_mut() {
             let (p2, op2) = ot::transform(&p.1, &op)?; // the bridge's edit first
             p.1 = p2;
@@ -543,14 +644,19 @@ impl Bridge {
         d.sent += 1;
         d.pending.push((d.sent, op.clone()));
         d.ack_due = None;
-        let m = json!({"t":"remote","path":d.path,"seq":d.sent,"seen":d.seen,"op":ot::op_to_json(&op)});
+        let m =
+            json!({"t":"remote","path":d.path,"seq":d.sent,"seen":d.seen,"op":ot::op_to_json(&op)});
         self.emit(m);
     }
 
     fn on_cursor(&mut self, m: &Value) {
         let path = m.get("path").and_then(|x| x.as_str()).unwrap_or("");
-        let Some(id) = self.doc_by_path(path) else { return };
-        let Some(pos) = m.get("pos").and_then(|x| x.as_u64()) else { return };
+        let Some(id) = self.doc_by_path(path) else {
+            return;
+        };
+        let Some(pos) = m.get("pos").and_then(|x| x.as_u64()) else {
+            return;
+        };
         let d = &self.docs[&id];
         if !d.joined || self.offline {
             return;
@@ -565,14 +671,20 @@ impl Bridge {
                 col += c.len_utf16();
             }
         }
-        self.cmd(NetCmd::Cursor { doc_id: id, row, column: col });
+        self.cmd(NetCmd::Cursor {
+            doc_id: id,
+            row,
+            column: col,
+        });
     }
 
     // ---- Overleaf-side OT -------------------------------------------------
     fn flush_doc(&mut self, id: &str) {
         let offline = self.offline;
         let now = self.now;
-        let Some(d) = self.docs.get_mut(id) else { return };
+        let Some(d) = self.docs.get_mut(id) else {
+            return;
+        };
         if offline || !d.joined || d.inflight.is_some() || d.rejoining || d.hard_resync {
             return;
         }
@@ -585,7 +697,12 @@ impl Bridge {
                 d.inflight = Some(buf);
                 d.inflight_v = d.version;
                 d.sent_at = now;
-                let c = NetCmd::Update { doc_id: id.to_string(), v: d.version, op: w, dup_if_source: vec![] };
+                let c = NetCmd::Update {
+                    doc_id: id.to_string(),
+                    v: d.version,
+                    op: w,
+                    dup_if_source: vec![],
+                };
                 self.cmd(c);
             }
             Ok(None) => {}
@@ -597,8 +714,14 @@ impl Bridge {
     }
 
     fn apply_update(&mut self, id: &str, u: WireUpdate) {
-        let Some(d) = self.docs.get_mut(id) else { return };
-        let own = u.source.as_ref().map(|s| self.own_ids.contains(s)).unwrap_or(false);
+        let Some(d) = self.docs.get_mut(id) else {
+            return;
+        };
+        let own = u
+            .source
+            .as_ref()
+            .map(|s| self.own_ids.contains(s))
+            .unwrap_or(false);
         let history = d.kind == DocType::History;
         if history {
             // history-ot updates carry the version they were *submitted* at (not
@@ -649,7 +772,12 @@ impl Bridge {
             Ok(b) => d.base = b,
             Err(e) => {
                 let p = d.path.clone();
-                self.error("internal", &format!("ack apply failed: {e}"), Some(&p), false);
+                self.error(
+                    "internal",
+                    &format!("ack apply failed: {e}"),
+                    Some(&p),
+                    false,
+                );
                 return;
             }
         }
@@ -709,7 +837,10 @@ impl Bridge {
         d.inflight = None;
         d.buffer = None;
         d.rejoining = true;
-        self.cmd(NetCmd::JoinDoc { doc_id: id.to_string(), from_version: None });
+        self.cmd(NetCmd::JoinDoc {
+            doc_id: id.to_string(),
+            from_version: None,
+        });
     }
 
     // ---- network events ---------------------------------------------------
@@ -722,9 +853,12 @@ impl Bridge {
                 self.emit(json!({"t":"need_auth","fields":["email","password"],"reason":reason}));
             }
             NetEvent::Fatal { message } => self.error("open_failed", &message, None, true),
-            NetEvent::Connected { public_id, project, user_name, user_id } => {
-                self.on_connected(public_id, project, user_name, user_id)
-            }
+            NetEvent::Connected {
+                public_id,
+                project,
+                user_name,
+                user_id,
+            } => self.on_connected(public_id, project, user_name, user_id),
             NetEvent::Disconnected { reason, retry } => self.on_disconnected(&reason, retry),
             NetEvent::DocJoined { doc_id, result } => self.on_doc_joined(&doc_id, result),
             NetEvent::Update { doc_id, update } => self.apply_update(&doc_id, update),
@@ -747,7 +881,13 @@ impl Bridge {
         self.flush_all_inner();
     }
 
-    fn on_connected(&mut self, public_id: String, project: ProjectInfo, user_name: String, user_id: String) {
+    fn on_connected(
+        &mut self,
+        public_id: String,
+        project: ProjectInfo,
+        user_name: String,
+        user_id: String,
+    ) {
         self.public_id = public_id.clone();
         if !self.own_ids.contains(&public_id) {
             self.own_ids.push(public_id);
@@ -769,7 +909,10 @@ impl Bridge {
                 d.rejoining = true;
                 let from = if d.hard_resync { None } else { Some(d.version) };
                 self.rejoin_wait.insert(id.clone());
-                self.cmd(NetCmd::JoinDoc { doc_id: id, from_version: from });
+                self.cmd(NetCmd::JoinDoc {
+                    doc_id: id,
+                    from_version: from,
+                });
             }
             if self.rejoin_wait.is_empty() {
                 self.status("connected", None);
@@ -782,7 +925,12 @@ impl Bridge {
         self.phase = Phase::Initial;
         self.project_name = project.name.clone();
         self.root_id = project.root.id.clone();
-        let root = match self.params.get("mirror_dir").or_else(|| self.params.get("dir")).and_then(|x| x.as_str()) {
+        let root = match self
+            .params
+            .get("mirror_dir")
+            .or_else(|| self.params.get("dir"))
+            .and_then(|x| x.as_str())
+        {
             Some(d) => PathBuf::from(d),
             None => {
                 let host = self
@@ -793,11 +941,19 @@ impl Bridge {
                     .and_then(|u| u.host_str().map(String::from))
                     .unwrap_or_else(|| "overleaf".into());
                 let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-                PathBuf::from(home).join("collab/overleaf").join(host).join(project.name.replace('/', "_"))
+                PathBuf::from(home)
+                    .join("collab/overleaf")
+                    .join(host)
+                    .join(project.name.replace('/', "_"))
             }
         };
         if let Err(e) = std::fs::create_dir_all(&root) {
-            self.error("open_failed", &format!("cannot create mirror {}: {e}", root.display()), None, true);
+            self.error(
+                "open_failed",
+                &format!("cannot create mirror {}: {e}", root.display()),
+                None,
+                true,
+            );
             return;
         }
         let root = std::fs::canonicalize(&root).unwrap_or(root);
@@ -805,18 +961,32 @@ impl Bridge {
         let tree = project.root.clone();
         self.add_tree(&tree, None, true);
         // folders, then docs and files
-        let mut folders: Vec<String> = self.ents.iter().filter(|(_, e)| e.kind == Kind::Folder).filter_map(|(i, _)| self.path_of(i)).filter(|p| !p.is_empty()).collect();
+        let mut folders: Vec<String> = self
+            .ents
+            .iter()
+            .filter(|(_, e)| e.kind == Kind::Folder)
+            .filter_map(|(i, _)| self.path_of(i))
+            .filter(|p| !p.is_empty())
+            .collect();
         folders.sort();
         for f in folders {
             if let Some(p) = self.full(&f) {
                 let _ = std::fs::create_dir_all(p);
             }
         }
-        let items: Vec<(String, Kind)> = self.ents.iter().filter(|(_, e)| e.kind != Kind::Folder).map(|(i, e)| (i.clone(), e.kind)).collect();
+        let items: Vec<(String, Kind)> = self
+            .ents
+            .iter()
+            .filter(|(_, e)| e.kind != Kind::Folder)
+            .map(|(i, e)| (i.clone(), e.kind))
+            .collect();
         for (id, kind) in items {
             self.init_wait.insert(id.clone());
             match kind {
-                Kind::Doc => self.cmd(NetCmd::JoinDoc { doc_id: id, from_version: None }),
+                Kind::Doc => self.cmd(NetCmd::JoinDoc {
+                    doc_id: id,
+                    from_version: None,
+                }),
                 _ => self.cmd(NetCmd::FetchFile { file_id: id }),
             }
         }
@@ -829,12 +999,17 @@ impl Bridge {
         }
         self.phase = Phase::Ready;
         let files = self.all_paths();
-        let main = ["main.tex", "main.typ"].iter().find(|c| files.iter().any(|f| f == *c)).map(|s| s.to_string()).or_else(|| files.iter().find(|f| f.ends_with(".tex")).cloned());
+        let main = ["main.tex", "main.typ"]
+            .iter()
+            .find(|c| files.iter().any(|f| f == *c))
+            .map(|s| s.to_string())
+            .or_else(|| files.iter().find(|f| f.ends_with(".tex")).cloned());
         let mut project = json!({"name":self.project_name,"root":self.root.as_ref().unwrap().to_string_lossy(),"files":files});
         if let Some(m) = main {
             project["main"] = json!(m);
         }
-        let me = json!({"id":self.public_id,"name":self.user_name,"color":color_for(&self.public_id)});
+        let me =
+            json!({"id":self.public_id,"name":self.user_name,"color":color_for(&self.public_id)});
         self.emit(json!({"t":"ready","project":project,"self":me}));
         self.status("connected", None);
         let bf = std::mem::take(&mut self.binary_fail);
@@ -848,7 +1023,12 @@ impl Bridge {
         if self.phase == Phase::Opening || self.phase == Phase::Initial {
             // initial connection failed
             if !retry || self.phase == Phase::Opening {
-                self.error("open_failed", &format!("connection failed: {reason}"), None, true);
+                self.error(
+                    "open_failed",
+                    &format!("connection failed: {reason}"),
+                    None,
+                    true,
+                );
                 return;
             }
         }
@@ -962,7 +1142,7 @@ impl Bridge {
             self.flush_doc(id);
         }
         self.rejoin_wait.remove(id);
-        if self.rejoin_wait.is_empty() && self.offline == false && self.phase == Phase::Ready {
+        if self.rejoin_wait.is_empty() && !self.offline && self.phase == Phase::Ready {
             self.status("connected", None);
         }
     }
@@ -983,7 +1163,12 @@ impl Bridge {
         d.joined = true;
         let (path, att) = (d.path.clone(), d.attached);
         if att {
-            self.error("resync", "document was reloaded from the server; local unsent edits were dropped", Some(&path), false);
+            self.error(
+                "resync",
+                "document was reloaded from the server; local unsent edits were dropped",
+                Some(&path),
+                false,
+            );
             let d = self.docs.get_mut(id).unwrap();
             d.sent = 0;
             d.seen = 0;
@@ -1001,12 +1186,19 @@ impl Bridge {
     fn resend(&mut self, id: &str) {
         let now = self.now;
         let own = self.own_ids.clone();
-        let Some(d) = self.docs.get_mut(id) else { return };
+        let Some(d) = self.docs.get_mut(id) else {
+            return;
+        };
         let Some(inf) = &d.inflight else { return };
         match wire_op(&d.kind, inf, &d.base) {
             Ok(Some(w)) => {
                 d.sent_at = now;
-                let c = NetCmd::Update { doc_id: id.to_string(), v: d.version, op: w, dup_if_source: own };
+                let c = NetCmd::Update {
+                    doc_id: id.to_string(),
+                    v: d.version,
+                    op: w,
+                    dup_if_source: own,
+                };
                 self.cmd(c);
             }
             _ => {
@@ -1018,8 +1210,12 @@ impl Bridge {
     /// A local (bridge-originated) insert of `t` at the start of a doc.
     fn local_insert(&mut self, id: &str, t: &str) {
         let d = self.docs.get_mut(id).unwrap();
-        let Ok(op) = ot::from_change(d.text.len(), 0, 0, t) else { return };
-        let Ok(text) = ot::apply(&d.text, &op) else { return };
+        let Ok(op) = ot::from_change(d.text.len(), 0, 0, t) else {
+            return;
+        };
+        let Ok(text) = ot::apply(&d.text, &op) else {
+            return;
+        };
         d.text = text;
         d.buffer = Some(match d.buffer.take() {
             Some(b) => ot::compose(&b, &op).unwrap_or(b),
@@ -1075,8 +1271,17 @@ impl Bridge {
             log(&format!("tree event for unknown parent {parent}"));
             return false;
         }
-        self.ents.insert(id.to_string(), Ent { kind, name: name.to_string(), parent: Some(parent.to_string()) });
-        let Some(path) = self.path_of(id) else { return false };
+        self.ents.insert(
+            id.to_string(),
+            Ent {
+                kind,
+                name: name.to_string(),
+                parent: Some(parent.to_string()),
+            },
+        );
+        let Some(path) = self.path_of(id) else {
+            return false;
+        };
         match kind {
             Kind::Folder => self.mirror_mkdir(&path),
             Kind::Doc => {
@@ -1085,9 +1290,14 @@ impl Bridge {
                         let _ = write_atomic(&f, b"");
                     }
                 }
-                self.cmd(NetCmd::JoinDoc { doc_id: id.to_string(), from_version: None });
+                self.cmd(NetCmd::JoinDoc {
+                    doc_id: id.to_string(),
+                    from_version: None,
+                });
             }
-            Kind::File => self.cmd(NetCmd::FetchFile { file_id: id.to_string() }),
+            Kind::File => self.cmd(NetCmd::FetchFile {
+                file_id: id.to_string(),
+            }),
         }
         self.emit(json!({"t":"file_event","op":"create","path":path}));
         true
@@ -1097,19 +1307,33 @@ impl Bridge {
         let Some(path) = self.path_of(id) else { return };
         let kind = self.ents[id].kind;
         // remove descendants
-        let kids: Vec<String> = self.ents.iter().filter(|(_, e)| e.parent.as_deref() == Some(id)).map(|(i, _)| i.clone()).collect();
+        let kids: Vec<String> = self
+            .ents
+            .iter()
+            .filter(|(_, e)| e.parent.as_deref() == Some(id))
+            .map(|(i, _)| i.clone())
+            .collect();
         for k in kids {
             self.remove_entity_silent(&k);
         }
         self.ents.remove(id);
         self.docs.remove(id);
         if let Some(f) = self.full(&path) {
-            let _ = if kind == Kind::Folder { std::fs::remove_dir_all(&f) } else { std::fs::remove_file(&f) };
+            let _ = if kind == Kind::Folder {
+                std::fs::remove_dir_all(&f)
+            } else {
+                std::fs::remove_file(&f)
+            };
         }
         self.emit(json!({"t":"file_event","op":"delete","path":path}));
     }
     fn remove_entity_silent(&mut self, id: &str) {
-        let kids: Vec<String> = self.ents.iter().filter(|(_, e)| e.parent.as_deref() == Some(id)).map(|(i, _)| i.clone()).collect();
+        let kids: Vec<String> = self
+            .ents
+            .iter()
+            .filter(|(_, e)| e.parent.as_deref() == Some(id))
+            .map(|(i, _)| i.clone())
+            .collect();
         for k in kids {
             self.remove_entity_silent(&k);
         }
@@ -1124,7 +1348,12 @@ impl Bridge {
         }
     }
 
-    fn move_quiet(&mut self, id: &str, new_parent: Option<&str>, new_name: Option<&str>) -> Option<(String, String)> {
+    fn move_quiet(
+        &mut self,
+        id: &str,
+        new_parent: Option<&str>,
+        new_name: Option<&str>,
+    ) -> Option<(String, String)> {
         let old = self.path_of(id)?;
         let e = self.ents.get_mut(id)?;
         if let Some(p) = new_parent {
@@ -1170,15 +1399,30 @@ impl Bridge {
     fn reconcile_tree(&mut self, root: &Folder) {
         let mut fresh = Bridge::new(true);
         fresh.add_tree(root, None, true);
-        let gone: Vec<String> = self.ents.keys().filter(|i| !fresh.ents.contains_key(*i)).cloned().collect();
+        let gone: Vec<String> = self
+            .ents
+            .keys()
+            .filter(|i| !fresh.ents.contains_key(*i))
+            .cloned()
+            .collect();
         for g in gone {
             if self.ents.contains_key(&g) {
                 self.remove_entity(&g);
             }
         }
         // parents before children
-        let mut news: Vec<String> = fresh.ents.keys().filter(|i| !self.ents.contains_key(*i)).cloned().collect();
-        news.sort_by_key(|i| fresh.path_of(i).map(|p| p.matches('/').count()).unwrap_or(0));
+        let mut news: Vec<String> = fresh
+            .ents
+            .keys()
+            .filter(|i| !self.ents.contains_key(*i))
+            .cloned()
+            .collect();
+        news.sort_by_key(|i| {
+            fresh
+                .path_of(i)
+                .map(|p| p.matches('/').count())
+                .unwrap_or(0)
+        });
         for n in news {
             let e = &fresh.ents[&n];
             if let Some(p) = e.parent.clone() {
@@ -1188,7 +1432,12 @@ impl Bridge {
         let moved: Vec<(String, Option<String>, String)> = fresh
             .ents
             .iter()
-            .filter(|(i, e)| self.ents.get(*i).map(|o| o.name != e.name || o.parent != e.parent).unwrap_or(false))
+            .filter(|(i, e)| {
+                self.ents
+                    .get(*i)
+                    .map(|o| o.name != e.name || o.parent != e.parent)
+                    .unwrap_or(false)
+            })
             .map(|(i, e)| (i.clone(), e.parent.clone(), e.name.clone()))
             .collect();
         for (i, p, n) in moved {
@@ -1224,9 +1473,18 @@ impl Bridge {
     // ---- file operations from Emacs ---------------------------------------
     fn on_file(&mut self, m: &Value) {
         let op = m.get("op").and_then(|x| x.as_str()).unwrap_or("");
-        let path = m.get("path").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let path = m
+            .get("path")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
         if !self.require_ready() || !valid_path(&path) {
-            self.error("file_failed", "bad path or project not ready", Some(&path), false);
+            self.error(
+                "file_failed",
+                "bad path or project not ready",
+                Some(&path),
+                false,
+            );
             return;
         }
         match op {
@@ -1235,11 +1493,20 @@ impl Bridge {
                     self.error("file_failed", "already exists", Some(&path), false);
                     return;
                 }
-                let text = m.get("text").and_then(|x| x.as_str()).filter(|s| !s.is_empty()).map(String::from);
+                let text = m
+                    .get("text")
+                    .and_then(|x| x.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(String::from);
                 self.start_create(&path, text);
             }
             "rename" => {
-                let Some(to) = m.get("to").and_then(|x| x.as_str()).filter(|t| valid_path(t)).map(String::from) else {
+                let Some(to) = m
+                    .get("to")
+                    .and_then(|x| x.as_str())
+                    .filter(|t| valid_path(t))
+                    .map(String::from)
+                else {
                     self.error("file_failed", "bad target path", Some(&path), false);
                     return;
                 };
@@ -1252,7 +1519,13 @@ impl Bridge {
                     return;
                 }
                 let kind = self.ents[&id].kind;
-                self.run_job(Job::Rename { id, kind, from: path, to, step: 0 });
+                self.run_job(Job::Rename {
+                    id,
+                    kind,
+                    from: path,
+                    to,
+                    step: 0,
+                });
             }
             "delete" => {
                 let Some(id) = self.ent_by_path(&path) else {
@@ -1274,7 +1547,11 @@ impl Bridge {
         let mut so_far = String::new();
         let mut i = 0;
         while i < dirs.len() {
-            let p = if so_far.is_empty() { dirs[i].to_string() } else { format!("{so_far}/{}", dirs[i]) };
+            let p = if so_far.is_empty() {
+                dirs[i].to_string()
+            } else {
+                format!("{so_far}/{}", dirs[i])
+            };
             match self.ent_by_path(&p) {
                 Some(id) if self.ents[&id].kind == Kind::Folder => {
                     parent = id;
@@ -1288,10 +1565,18 @@ impl Bridge {
                 None => break,
             }
         }
-        let job = Job::CreateDoc { path: path.to_string(), text };
+        let job = Job::CreateDoc {
+            path: path.to_string(),
+            text,
+        };
         if i < dirs.len() {
             let rest: Vec<String> = dirs[i..].iter().map(|s| s.to_string()).collect();
-            self.run_job(Job::Mkdir { rest, parent, path_so_far: so_far, then: Box::new(job) });
+            self.run_job(Job::Mkdir {
+                rest,
+                parent,
+                path_so_far: so_far,
+                then: Box::new(job),
+            });
         } else {
             self.run_job_in(job, &parent);
         }
@@ -1308,12 +1593,20 @@ impl Bridge {
     }
 
     fn mkdir_chain(&mut self, dir_path: &str, then: Job) {
-        let dirs: Vec<String> = dir_path.split('/').filter(|s| !s.is_empty()).map(String::from).collect();
+        let dirs: Vec<String> = dir_path
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect();
         let mut par = self.root_id.clone();
         let mut so_far = String::new();
         let mut i = 0;
         while i < dirs.len() {
-            let p = if so_far.is_empty() { dirs[i].clone() } else { format!("{so_far}/{}", dirs[i]) };
+            let p = if so_far.is_empty() {
+                dirs[i].clone()
+            } else {
+                format!("{so_far}/{}", dirs[i])
+            };
             if let Some(f) = self.ent_by_path(&p) {
                 par = f;
                 so_far = p;
@@ -1326,7 +1619,12 @@ impl Bridge {
         if rest.is_empty() {
             self.run_job_in(then, &par);
         } else {
-            self.run_job(Job::Mkdir { rest, parent: par, path_so_far: so_far, then: Box::new(then) });
+            self.run_job(Job::Mkdir {
+                rest,
+                parent: par,
+                path_so_far: so_far,
+                then: Box::new(then),
+            });
         }
     }
 
@@ -1335,15 +1633,38 @@ impl Bridge {
     fn run_job_in(&mut self, job: Job, parent: &str) {
         let tag = self.new_tag();
         let req = match &job {
-            Job::CreateDoc { path, .. } => RestReq::CreateDoc { parent: parent.to_string(), name: path.rsplit('/').next().unwrap().to_string() },
-            Job::Mkdir { rest, parent, .. } => RestReq::CreateFolder { parent: parent.clone(), name: rest[0].clone() },
-            Job::Delete { id, kind, .. } => RestReq::Delete { kind: kind.rest().into(), id: id.clone() },
-            Job::Rename { id, kind, from, to, step } => {
+            Job::CreateDoc { path, .. } => RestReq::CreateDoc {
+                parent: parent.to_string(),
+                name: path.rsplit('/').next().unwrap().to_string(),
+            },
+            Job::Mkdir { rest, parent, .. } => RestReq::CreateFolder {
+                parent: parent.clone(),
+                name: rest[0].clone(),
+            },
+            Job::Delete { id, kind, .. } => RestReq::Delete {
+                kind: kind.rest().into(),
+                id: id.clone(),
+            },
+            Job::Rename {
+                id,
+                kind,
+                from,
+                to,
+                step,
+            } => {
                 let (fp, tp) = (parent_of(from), parent_of(to));
                 if *step == 0 && fp != tp {
-                    let dest = if tp.is_empty() { Some(self.root_id.clone()) } else { self.ent_by_path(tp) };
+                    let dest = if tp.is_empty() {
+                        Some(self.root_id.clone())
+                    } else {
+                        self.ent_by_path(tp)
+                    };
                     match dest {
-                        Some(dest) => RestReq::Move { kind: kind.rest().into(), id: id.clone(), folder: dest },
+                        Some(dest) => RestReq::Move {
+                            kind: kind.rest().into(),
+                            id: id.clone(),
+                            folder: dest,
+                        },
                         None => {
                             let tp = tp.to_string();
                             self.mkdir_chain(&tp, job);
@@ -1351,7 +1672,11 @@ impl Bridge {
                         }
                     }
                 } else {
-                    RestReq::Rename { kind: kind.rest().into(), id: id.clone(), name: to.rsplit('/').next().unwrap().to_string() }
+                    RestReq::Rename {
+                        kind: kind.rest().into(),
+                        id: id.clone(),
+                        name: to.rsplit('/').next().unwrap().to_string(),
+                    }
                 }
             }
         };
@@ -1360,7 +1685,9 @@ impl Bridge {
     }
 
     fn on_rest_done(&mut self, tag: u64, result: Result<Value, String>) {
-        let Some(job) = self.jobs.remove(&tag) else { return };
+        let Some(job) = self.jobs.remove(&tag) else {
+            return;
+        };
         let v = match result {
             Ok(v) => v,
             Err(e) => {
@@ -1373,12 +1700,26 @@ impl Bridge {
                 return;
             }
         };
-        let rid = v.get("_id").or_else(|| v.get("id")).and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let rid = v
+            .get("_id")
+            .or_else(|| v.get("id"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
         match job {
             Job::CreateDoc { path, text } => {
-                let parent = if parent_of(&path).is_empty() { Some(self.root_id.clone()) } else { self.ent_by_path(parent_of(&path)) };
+                let parent = if parent_of(&path).is_empty() {
+                    Some(self.root_id.clone())
+                } else {
+                    self.ent_by_path(parent_of(&path))
+                };
                 if rid.is_empty() || parent.is_none() {
-                    self.error("file_failed", "server returned no id (or parent vanished)", Some(&path), false);
+                    self.error(
+                        "file_failed",
+                        "server returned no id (or parent vanished)",
+                        Some(&path),
+                        false,
+                    );
                     return;
                 }
                 let name = path.rsplit('/').next().unwrap().to_string();
@@ -1394,18 +1735,37 @@ impl Bridge {
                 }
                 self.add_entity(Kind::Doc, &parent.unwrap(), &rid, &name);
             }
-            Job::Mkdir { mut rest, parent, path_so_far, then } => {
+            Job::Mkdir {
+                mut rest,
+                parent,
+                path_so_far,
+                then,
+            } => {
                 let name = rest.remove(0);
                 if rid.is_empty() {
-                    self.error("file_failed", "server returned no folder id", Some(&path_so_far), false);
+                    self.error(
+                        "file_failed",
+                        "server returned no folder id",
+                        Some(&path_so_far),
+                        false,
+                    );
                     return;
                 }
                 self.add_entity(Kind::Folder, &parent, &rid, &name);
-                let so_far = if path_so_far.is_empty() { name } else { format!("{path_so_far}/{name}") };
+                let so_far = if path_so_far.is_empty() {
+                    name
+                } else {
+                    format!("{path_so_far}/{name}")
+                };
                 if rest.is_empty() {
                     self.run_job_in(*then, &rid);
                 } else {
-                    self.run_job(Job::Mkdir { rest, parent: rid, path_so_far: so_far, then });
+                    self.run_job(Job::Mkdir {
+                        rest,
+                        parent: rid,
+                        path_so_far: so_far,
+                        then,
+                    });
                 }
             }
             Job::Delete { id, .. } => {
@@ -1413,14 +1773,33 @@ impl Bridge {
                     self.remove_entity(&id);
                 }
             }
-            Job::Rename { id, kind, from, to, step } => {
+            Job::Rename {
+                id,
+                kind,
+                from,
+                to,
+                step,
+            } => {
                 let (fp, tp) = (parent_of(&from), parent_of(&to));
-                let (fname, tname) = (from.rsplit('/').next().unwrap(), to.rsplit('/').next().unwrap());
+                let (fname, tname) = (
+                    from.rsplit('/').next().unwrap(),
+                    to.rsplit('/').next().unwrap(),
+                );
                 if step == 0 && fp != tp {
-                    let dest = if tp.is_empty() { self.root_id.clone() } else { self.ent_by_path(tp).unwrap_or_else(|| self.root_id.clone()) };
+                    let dest = if tp.is_empty() {
+                        self.root_id.clone()
+                    } else {
+                        self.ent_by_path(tp).unwrap_or_else(|| self.root_id.clone())
+                    };
                     self.move_quiet(&id, Some(&dest), None);
                     if fname != tname {
-                        self.run_job(Job::Rename { id, kind, from, to, step: 1 });
+                        self.run_job(Job::Rename {
+                            id,
+                            kind,
+                            from,
+                            to,
+                            step: 1,
+                        });
                         return;
                     }
                 } else {
@@ -1434,7 +1813,11 @@ impl Bridge {
 
     // ---- test hooks -------------------------------------------------------
     fn on_x_test_remote(&mut self, m: &Value) {
-        let path = m.get("path").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let path = m
+            .get("path")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
         let Some(id) = self.doc_by_path(&path) else {
             self.error("test_failed", "no such doc", Some(&path), false);
             return;
@@ -1449,7 +1832,12 @@ impl Bridge {
     pub fn tick(&mut self, now: Instant) {
         self.now = now;
         // acks to Emacs
-        let due: Vec<String> = self.docs.values().filter(|d| d.attached && !d.broken && d.ack_due.map(|t| t <= now).unwrap_or(false)).map(|d| d.id.clone()).collect();
+        let due: Vec<String> = self
+            .docs
+            .values()
+            .filter(|d| d.attached && !d.broken && d.ack_due.map(|t| t <= now).unwrap_or(false))
+            .map(|d| d.id.clone())
+            .collect();
         for id in due {
             let d = self.docs.get_mut(&id).unwrap();
             d.ack_due = None;
@@ -1460,18 +1848,40 @@ impl Bridge {
         self.flush_dirty();
         // resends
         if !self.offline {
-            let ids: Vec<String> = self.docs.values().filter(|d| d.joined && d.inflight.is_some() && now.duration_since(d.sent_at) >= RESEND_AFTER).map(|d| d.id.clone()).collect();
+            let ids: Vec<String> = self
+                .docs
+                .values()
+                .filter(|d| {
+                    d.joined
+                        && d.inflight.is_some()
+                        && now.duration_since(d.sent_at) >= RESEND_AFTER
+                })
+                .map(|d| d.id.clone())
+                .collect();
             for id in ids {
                 log(&format!("resending update for {id}"));
                 self.resend(&id);
             }
-            let ids: Vec<String> = self.docs.values().filter(|d| d.joined && d.ooo_since.map(|t| now.duration_since(t) >= GAP_REJOIN_AFTER).unwrap_or(false)).map(|d| d.id.clone()).collect();
+            let ids: Vec<String> = self
+                .docs
+                .values()
+                .filter(|d| {
+                    d.joined
+                        && d.ooo_since
+                            .map(|t| now.duration_since(t) >= GAP_REJOIN_AFTER)
+                            .unwrap_or(false)
+                })
+                .map(|d| d.id.clone())
+                .collect();
             for id in ids {
                 let d = self.docs.get_mut(&id).unwrap();
                 d.ooo_since = None;
                 d.rejoining = true;
                 let v = d.version;
-                self.cmd(NetCmd::JoinDoc { doc_id: id, from_version: Some(v) });
+                self.cmd(NetCmd::JoinDoc {
+                    doc_id: id,
+                    from_version: Some(v),
+                });
             }
         }
         if let Some(t) = self.retry_at {
@@ -1502,7 +1912,11 @@ pub fn wire_op(kind: &DocType, op: &Op, base: &[char]) -> Result<Option<Value>, 
     match kind {
         DocType::Share => {
             let c = ot::to_sharejs(op, base)?;
-            Ok(if c.is_empty() { None } else { Some(Value::Array(c)) })
+            Ok(if c.is_empty() {
+                None
+            } else {
+                Some(Value::Array(c))
+            })
         }
         DocType::History => {
             if ot::is_noop(op) {
